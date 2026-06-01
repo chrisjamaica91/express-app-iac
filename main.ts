@@ -1,29 +1,140 @@
-import { Construct } from "constructs";
-import { App, TerraformStack, TerraformOutput } from "cdktf";
-import { AwsProvider } from "@cdktf/provider-aws/lib/provider";
 import * as dotenv from "dotenv";
-
 // Load environment variables
 dotenv.config();
 
+
+import { Construct } from "constructs";
+import { App, TerraformStack, TerraformOutput } from "cdktf";
+import { AwsProvider } from "@cdktf/provider-aws/lib/provider";
+import { VpcConstruct } from './constructs/VpcConstruct';
+import { EcrConstruct } from './constructs/EcrConstruct';
+import { AlbConstruct } from './constructs/AlbConstruct';
+import { EcsConstruct } from './constructs/EcsConstruct';
+import { IamStack } from './stacks/IamStack';
+import { getConfig } from "./config";
+import { GithubOidcStack } from "./stacks/GithubOidcStack";
+
+// Load config (now .env is already loaded)
+const config = getConfig(process.env.ENVIRONMENT || 'dev');
+
+const app = new App();
+
+const githubOidcStack = new GithubOidcStack(app, "github-oidc", {
+  awsRegion: config.awsRegion,
+  awsAccountId: config.awsAccountId,
+  githubOrg: config.githubOrg,
+  githubRepos: ["turbovets-assessment", "express-app-iac"],
+  tags: config.tags,
+});
+
+const iamStack = new IamStack(app, "express-app-iam", {
+  environment: config.environment,
+  appName: "express-app",
+  awsAccountId: config.awsAccountId,
+  awsRegion: config.awsRegion,
+  ecrRepositoryName: config.ecr.repositoryName,
+  tags: config.tags,
+});
+  
 class ExpressAppStack extends TerraformStack {
   constructor(scope: Construct, id: string) {
     super(scope, id);
 
     // Configure AWS Provider
     new AwsProvider(this, "aws", {
-      region: process.env.AWS_REGION || "us-east-2",
+      region: config.awsRegion,
     });
 
-    // Output AWS region
+    // Create VPC
+    const vpc = new VpcConstruct(this, "vpc", {
+      cidr: config.vpc.cidr,
+      azCount: config.vpc.azCount,
+      tags: config.tags,
+    });
+
+    // Create ECR repository
+    const ecr = new EcrConstruct(this, "ecr", {
+      repositoryName: config.ecr.repositoryName,
+      imageTagMutability: config.ecr.imageTagMutability,
+      tags: config.tags,
+    });
+
+    // Create ALB
+    const alb = new AlbConstruct(this, "alb", {
+      name: `${config.tags.Project}-alb`,
+      vpcId: vpc.outputs.vpcId,
+      publicSubnetIds: vpc.outputs.publicSubnetIds,
+      securityGroupIds: [vpc.outputs.albSecurityGroupId],
+      targetPort: 3000,
+      healthCheckPath: "/health",
+      tags: config.tags,
+    });
+
+    // Create ECS cluster and service
+    const ecs = new EcsConstruct(this, "ecs", {
+      clusterName: `${config.tags.Project}-cluster`,
+      serviceName: `${config.tags.Project}-service`,
+      taskFamily: `${config.tags.Project}-task`,
+      cpu: config.ecs.cpu,
+      memory: config.ecs.memory,
+      desiredCount: config.ecs.desiredCount,
+      containerImage: `${ecr.outputs.repositoryUrl}:latest`,
+      containerPort: 3000,
+      taskRoleArn: iamStack.taskRoleArn,
+      executionRoleArn: iamStack.taskExecutionRoleArn,
+      securityGroupIds: [vpc.outputs.ecsSecurityGroupId],
+      subnetIds: vpc.outputs.privateSubnetIds,
+      targetGroupArn: alb.outputs.targetGroupArn,
+      tags: config.tags,
+    });
+
+    // Outputs
+    new TerraformOutput(this, "environment", {
+      value: config.environment,
+    });
+
     new TerraformOutput(this, "aws-region", {
-      value: process.env.AWS_REGION || "us-east-2",
+      value: config.awsRegion,
     });
 
-    // Resources will be added here
+    new TerraformOutput(this, "vpc-id", {
+      value: vpc.outputs.vpcId,
+    });
+
+    new TerraformOutput(this, "ecr-repository-url", {
+      value: ecr.outputs.repositoryUrl,
+    });
+
+    new TerraformOutput(this, "alb-dns-name", {
+      value: alb.outputs.albDnsName,
+      description: "Load balancer DNS name - use this to access the application",
+    });
+
+    new TerraformOutput(this, "ecs-cluster-name", {
+      value: ecs.outputs.clusterName,
+    });
+
+    new TerraformOutput(this, "ecs-service-name", {
+      value: ecs.outputs.serviceName,
+    });
+
+    new TerraformOutput(this, "public-subnet-ids", {
+      value: vpc.outputs.publicSubnetIds,
+    });
+
+    new TerraformOutput(this, "private-subnet-ids", {
+      value: vpc.outputs.privateSubnetIds,
+    });
+
+    new TerraformOutput(this, "alb-security-group-id", {
+      value: vpc.outputs.albSecurityGroupId,
+    });
+
+    new TerraformOutput(this, "ecs-security-group-id", {
+      value: vpc.outputs.ecsSecurityGroupId,
+    });
   }
 }
 
-const app = new App();
 new ExpressAppStack(app, "express-app-iac");
 app.synth();

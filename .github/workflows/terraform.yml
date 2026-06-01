@@ -1,0 +1,299 @@
+name: Terraform Infrastructure
+
+on:
+  pull_request:
+    paths:
+      - 'stacks/**'
+      - 'constructs/**'
+      - 'config/**'
+      - 'main.ts'
+      - 'cdktf.json'
+  push:
+    branches:
+      - main
+    paths:
+      - 'stacks/**'
+      - 'constructs/**'
+      - 'config/**'
+      - 'main.ts'
+      - 'cdktf.json'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: us-east-2
+  NODE_VERSION: '20'
+
+jobs:
+  validate:
+    name: Validate and Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+      - name: CDKTF Synth
+        run: npm run synth
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ENVIRONMENT: dev
+
+      - name: Upload synth artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdktf-out
+          path: cdktf.out/
+          retention-days: 7
+
+      # Security Scanning
+      - name: Run Terrascan
+        uses: tenable/terrascan-action@v1.5.0
+        with:
+          iac_type: 'terraform'
+          iac_dir: 'cdktf.out/stacks/express-app-iac'
+          policy_type: 'aws'
+          only_warn: true
+          sarif_upload: false
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: cdktf.out/stacks/
+          framework: terraform
+          soft_fail: true
+          output_format: cli
+
+      - name: Install tfsec
+        run: |
+          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+          sudo mv tfsec /usr/local/bin/
+
+      - name: Run tfsec
+        run: |
+          cd cdktf.out/stacks/express-app-iac
+          tfsec . --soft-fail
+
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-deployment-role
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TerraformPlan
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: CDKTF Plan
+        run: |
+          npm run synth
+          cd cdktf.out/stacks/express-app-iac
+          terraform init
+          terraform plan -out=tfplan
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ENVIRONMENT: dev
+
+  deploy:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://console.aws.amazon.com/ecs/v2/clusters/express-app-cluster
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-deployment-role
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TerraformDeploy
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: CDKTF Deploy
+        run: cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ENVIRONMENT: dev
+
+      - name: Post deployment summary
+        run: |
+          echo "## ✅ Infrastructure Deployed Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** dev" >> $GITHUB_STEP_SUMMARY
+          echo "**Region:** ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  ai-analysis:
+    name: AI Deployment Analysis
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always() && (github.ref == 'refs/heads/main' && github.event_name == 'push')
+    steps:
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-deployment-role
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-AIAnalysis
+
+      - name: Gather Deployment Metrics
+        id: metrics
+        run: |
+          # Get ECS service status
+          SERVICE_STATUS=$(aws ecs describe-services \
+            --cluster express-app-cluster \
+            --services express-app-service \
+            --region ${{ env.AWS_REGION }} \
+            --query 'services[0].{Running:runningCount,Desired:desiredCount,Status:status}' \
+            --output json)
+          
+          # Get recent CloudWatch logs (last 5 minutes)
+          LOG_EVENTS=$(aws logs filter-log-events \
+            --log-group-name /ecs/express-app-service \
+            --start-time $(($(date +%s) - 300))000 \
+            --limit 20 \
+            --region ${{ env.AWS_REGION }} \
+            --query 'events[*].message' \
+            --output text 2>/dev/null || echo "No logs available")
+          
+          # Get ALB target health
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names express-app-alb-tg \
+            --region ${{ env.AWS_REGION }} \
+            --query 'TargetGroups[0].TargetGroupArn' \
+            --output text)
+          
+          TARGET_HEALTH=$(aws elbv2 describe-target-health \
+            --target-group-arn $TG_ARN \
+            --region ${{ env.AWS_REGION }} \
+            --query 'TargetHealthDescriptions[*].{State:TargetHealth.State,Reason:TargetHealth.Reason}' \
+            --output json)
+          
+          echo "service-status<<EOF" >> $GITHUB_OUTPUT
+          echo "$SERVICE_STATUS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "logs<<EOF" >> $GITHUB_OUTPUT
+          echo "$LOG_EVENTS" | head -c 2000 >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "target-health<<EOF" >> $GITHUB_OUTPUT
+          echo "$TARGET_HEALTH" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: AI Deployment Analysis
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # Prepare context for AI
+          DEPLOYMENT_STATUS="${{ needs.deploy.result }}"
+          COMMIT_MSG=$(git log -1 --pretty=%B || echo "Deployment from GitHub Actions")
+          
+          # Create prompt for OpenAI
+          cat > prompt.txt << 'EOFPROMPT'
+          You are a DevOps expert analyzing an AWS ECS Fargate deployment.
+          
+          **Deployment Status:** $DEPLOYMENT_STATUS
+          **Commit:** ${{ github.sha }}
+          **Message:** $COMMIT_MSG
+          
+          **ECS Service Status:**
+          ${{ steps.metrics.outputs.service-status }}
+          
+          **Target Health:**
+          ${{ steps.metrics.outputs.target-health }}
+          
+          **Recent Logs (last 5 min):**
+          ${{ steps.metrics.outputs.logs }}
+          
+          Provide a concise analysis (max 200 words):
+          1. **Health Assessment** - Overall deployment health (✅/⚠️/❌)
+          2. **Key Observations** - Notable patterns in logs or metrics
+          3. **Action Items** - Specific recommendations (if any issues detected)
+          4. **Performance Notes** - Any performance insights
+          
+          Be specific and actionable. Focus on real issues, not hypotheticals.
+          EOFPROMPT
+          
+          PROMPT_CONTENT=$(cat prompt.txt | envsubst)
+          
+          # Call OpenAI API
+          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d "{
+              \"model\": \"gpt-4o-mini\",
+              \"messages\": [
+                {
+                  \"role\": \"system\",
+                  \"content\": \"You are an expert DevOps engineer specializing in AWS ECS deployments. Provide concise, actionable analysis.\"
+                },
+                {
+                  \"role\": \"user\",
+                  \"content\": $(echo "$PROMPT_CONTENT" | jq -Rs .)
+                }
+              ],
+              \"temperature\": 0.3,
+              \"max_tokens\": 400
+            }")
+          
+          # Extract AI response
+          AI_ANALYSIS=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "AI analysis unavailable"')
+          
+          # Post to GitHub Actions summary
+          echo "## 🤖 AI Deployment Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "$AI_ANALYSIS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "_Analysis powered by OpenAI GPT-4o-mini_" >> $GITHUB_STEP_SUMMARY
+          
+          # Also output to console
+          echo "=== AI Analysis ==="
+          echo "$AI_ANALYSIS"
