@@ -3,30 +3,30 @@ name: Terraform Infrastructure
 on:
   pull_request:
     paths:
-      - 'stacks/**'
-      - 'constructs/**'
-      - 'config/**'
-      - 'main.ts'
-      - 'cdktf.json'
+      - "stacks/**"
+      - "constructs/**"
+      - "config/**"
+      - "main.ts"
+      - "cdktf.json"
   push:
     branches:
       - main
     paths:
-      - 'stacks/**'
-      - 'constructs/**'
-      - 'config/**'
-      - 'main.ts'
-      - 'cdktf.json'
+      - "stacks/**"
+      - "constructs/**"
+      - "config/**"
+      - "main.ts"
+      - "cdktf.json"
   workflow_dispatch:
 
 permissions:
-  id-token: write   # Required for OIDC
+  id-token: write # Required for OIDC
   contents: read
   pull-requests: write
 
 env:
   AWS_REGION: us-east-2
-  NODE_VERSION: '20'
+  NODE_VERSION: "20"
 
 jobs:
   validate:
@@ -40,7 +40,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -69,9 +69,9 @@ jobs:
       - name: Run Terrascan
         uses: tenable/terrascan-action@v1.5.0
         with:
-          iac_type: 'terraform'
-          iac_dir: 'cdktf.out/stacks/express-app-iac'
-          policy_type: 'aws'
+          iac_type: "terraform"
+          iac_dir: "cdktf.out/stacks/express-app-iac"
+          policy_type: "aws"
           only_warn: true
           sarif_upload: false
 
@@ -83,15 +83,14 @@ jobs:
           soft_fail: true
           output_format: cli
 
-      - name: Install tfsec
-        run: |
-          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
-          sudo mv tfsec /usr/local/bin/
-
-      - name: Run tfsec
-        run: |
-          cd cdktf.out/stacks/express-app-iac
-          tfsec . --soft-fail
+      - name: Run Trivy IaC Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "config"
+          scan-ref: "cdktf.out/stacks/express-app-iac"
+          format: "table"
+          exit-code: "0"
+          severity: "CRITICAL,HIGH,MEDIUM"
 
   plan:
     name: Terraform Plan
@@ -113,7 +112,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -152,7 +151,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -195,7 +194,7 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --query 'services[0].{Running:runningCount,Desired:desiredCount,Status:status}' \
             --output json)
-          
+
           # Get recent CloudWatch logs (last 5 minutes)
           LOG_EVENTS=$(aws logs filter-log-events \
             --log-group-name /ecs/express-app-service \
@@ -204,28 +203,28 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --query 'events[*].message' \
             --output text 2>/dev/null || echo "No logs available")
-          
+
           # Get ALB target health
           TG_ARN=$(aws elbv2 describe-target-groups \
             --names express-app-alb-tg \
             --region ${{ env.AWS_REGION }} \
             --query 'TargetGroups[0].TargetGroupArn' \
             --output text)
-          
+
           TARGET_HEALTH=$(aws elbv2 describe-target-health \
             --target-group-arn $TG_ARN \
             --region ${{ env.AWS_REGION }} \
             --query 'TargetHealthDescriptions[*].{State:TargetHealth.State,Reason:TargetHealth.Reason}' \
             --output json)
-          
+
           echo "service-status<<EOF" >> $GITHUB_OUTPUT
           echo "$SERVICE_STATUS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          
+
           echo "logs<<EOF" >> $GITHUB_OUTPUT
           echo "$LOG_EVENTS" | head -c 2000 >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          
+
           echo "target-health<<EOF" >> $GITHUB_OUTPUT
           echo "$TARGET_HEALTH" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -237,35 +236,35 @@ jobs:
           # Prepare context for AI
           DEPLOYMENT_STATUS="${{ needs.deploy.result }}"
           COMMIT_MSG=$(git log -1 --pretty=%B || echo "Deployment from GitHub Actions")
-          
+
           # Create prompt for OpenAI
           cat > prompt.txt << 'EOFPROMPT'
           You are a DevOps expert analyzing an AWS ECS Fargate deployment.
-          
+
           **Deployment Status:** $DEPLOYMENT_STATUS
           **Commit:** ${{ github.sha }}
           **Message:** $COMMIT_MSG
-          
+
           **ECS Service Status:**
           ${{ steps.metrics.outputs.service-status }}
-          
+
           **Target Health:**
           ${{ steps.metrics.outputs.target-health }}
-          
+
           **Recent Logs (last 5 min):**
           ${{ steps.metrics.outputs.logs }}
-          
+
           Provide a concise analysis (max 200 words):
           1. **Health Assessment** - Overall deployment health (✅/⚠️/❌)
           2. **Key Observations** - Notable patterns in logs or metrics
           3. **Action Items** - Specific recommendations (if any issues detected)
           4. **Performance Notes** - Any performance insights
-          
+
           Be specific and actionable. Focus on real issues, not hypotheticals.
           EOFPROMPT
-          
+
           PROMPT_CONTENT=$(cat prompt.txt | envsubst)
-          
+
           # Call OpenAI API
           RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
             -H "Content-Type: application/json" \
@@ -285,10 +284,10 @@ jobs:
               \"temperature\": 0.3,
               \"max_tokens\": 400
             }")
-          
+
           # Extract AI response
           AI_ANALYSIS=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "AI analysis unavailable"')
-          
+
           # Post to GitHub Actions summary
           echo "## 🤖 AI Deployment Analysis" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -296,7 +295,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "_Analysis powered by OpenAI GPT-4o-mini_" >> $GITHUB_STEP_SUMMARY
-          
+
           # Also output to console
           echo "=== AI Analysis ==="
           echo "$AI_ANALYSIS"
