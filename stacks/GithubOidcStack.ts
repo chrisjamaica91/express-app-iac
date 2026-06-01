@@ -174,6 +174,33 @@ export class GithubOidcStack extends TerraformStack {
       policyArn: logsPolicy.arn,
     });
 
+        // Policy for ALB access (for deployment verification and AI analysis)
+    const albPolicy = new IamPolicy(this, "alb-policy", {
+      name: "github-actions-alb-policy",
+      description: "Allow GitHub Actions to describe load balancers and target groups",
+      policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Effect: "Allow",
+            Action: [
+              "elasticloadbalancing:DescribeLoadBalancers",
+              "elasticloadbalancing:DescribeTargetGroups",
+              "elasticloadbalancing:DescribeTargetHealth",
+              "elasticloadbalancing:DescribeListeners",
+            ],
+            Resource: "*",
+          },
+        ],
+      }),
+      tags: config.tags,
+    });
+
+    new IamRolePolicyAttachment(this, "alb-policy-attachment", {
+      role: githubActionsRole.name,
+      policyArn: albPolicy.arn,
+    });
+
     // Store outputs
     this.githubActionsRoleArn = githubActionsRole.arn;
 
