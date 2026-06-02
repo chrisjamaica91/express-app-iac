@@ -158,7 +158,7 @@ jobs:
         run: npm ci
 
       - name: CDKTF Deploy
-        run: cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
+        run: npx cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
