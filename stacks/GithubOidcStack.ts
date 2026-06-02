@@ -1,5 +1,5 @@
 import { Construct } from "constructs";
-import { TerraformStack, TerraformOutput } from "cdktf";
+import { TerraformStack, TerraformOutput, S3Backend } from "cdktf";
 import { AwsProvider } from "@cdktf/provider-aws/lib/provider";
 import { IamOpenidConnectProvider } from "@cdktf/provider-aws/lib/iam-openid-connect-provider";
 import { IamRole } from "@cdktf/provider-aws/lib/iam-role";
@@ -22,6 +22,14 @@ export class GithubOidcStack extends TerraformStack {
 
     new AwsProvider(this, "aws", {
       region: config.awsRegion,
+    });
+
+    // Add S3Backend
+    new S3Backend(this, {
+        bucket: `express-app-tfstate-${config.awsAccountId}`,
+        key: "github-oidc/terraform.tfstate", // NOT environment-specific
+        region: config.awsRegion,
+        encrypt: true,
     });
 
     // Create OIDC Provider for GitHub Actions
@@ -208,5 +216,106 @@ export class GithubOidcStack extends TerraformStack {
       value: githubActionsRole.arn,
       description: "IAM role ARN for GitHub Actions OIDC authentication",
     });
+
+    // Policy for S3 state backend access (with native locking)
+    const s3StatePolicy = new IamPolicy(this, "s3-state-policy", {
+    name: "github-actions-s3-state-policy",
+    description: "Allow GitHub Actions to access Terraform state in S3",
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+        {
+            Effect: "Allow",
+            Action: [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject",
+            "s3:ListBucket",
+            "s3:GetObjectVersion", // For locking
+            ],
+            Resource: [
+            `arn:aws:s3:::express-app-tfstate-${config.awsAccountId}`, // ← Dynamic
+          `arn:aws:s3:::express-app-tfstate-${config.awsAccountId}/*`, // ← Dynamic
+            ],
+        },
+        ],
+    }),
+    tags: config.tags,
+    });
+
+    new IamRolePolicyAttachment(this, "s3-state-policy-attachment", {
+    role: githubActionsRole.name,
+    policyArn: s3StatePolicy.arn,
+    });
+
+    // Policy for Terraform read operations (comprehensive)
+const terraformReadPolicy = new IamPolicy(this, "terraform-read-policy", {
+  name: "github-actions-terraform-read-policy",
+  description: "Allow Terraform to read AWS infrastructure state",
+  policy: JSON.stringify({
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Effect: "Allow",
+        Action: [
+          // ===== EC2/VPC - All read operations =====
+          "ec2:Describe*",
+          "ec2:GetConsoleOutput",
+          "ec2:GetConsoleScreenshot",
+          
+          // ===== ECR - All read operations =====
+          "ecr:Describe*",
+          "ecr:List*",
+          "ecr:Get*",
+          "ecr:BatchGetImage",
+          "ecr:BatchCheckLayerAvailability",
+          
+          // ===== ECS - All read operations =====
+          "ecs:Describe*",
+          "ecs:List*",
+          
+          // ===== CloudWatch Logs - All read operations =====
+          "logs:Describe*",
+          "logs:List*",
+          "logs:Get*",
+          "logs:FilterLogEvents",
+          "logs:TestMetricFilter",
+          
+          // ===== Elastic Load Balancing - All read operations =====
+          "elasticloadbalancing:Describe*",
+          
+          // ===== IAM - Read operations for role verification =====
+          "iam:GetRole",
+          "iam:GetRolePolicy",
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies",
+          "iam:ListPolicyVersions",
+          "iam:ListInstanceProfilesForRole",
+          
+          // ===== Application Auto Scaling (if used) =====
+          "application-autoscaling:Describe*",
+          
+          // ===== Service Discovery (if used) =====
+          "servicediscovery:Get*",
+          "servicediscovery:List*",
+          
+          // ===== Secrets Manager (if used) =====
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:ListSecrets",
+          "secretsmanager:ListSecretVersionIds",
+        ],
+        Resource: "*", // Read-only operations, AWS best practice allows "*"
+      },
+    ],
+  }),
+  tags: config.tags,
+});
+
+new IamRolePolicyAttachment(this, "terraform-read-policy-attachment", {
+  role: githubActionsRole.name,
+  policyArn: terraformReadPolicy.arn,
+});
   }
 }

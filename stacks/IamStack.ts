@@ -1,5 +1,5 @@
 import { Construct } from "constructs";
-import { TerraformStack } from "cdktf";
+import { S3Backend, TerraformStack } from "cdktf";
 import { IamRole } from "@cdktf/provider-aws/lib/iam-role";
 import { IamRolePolicyAttachment } from "@cdktf/provider-aws/lib/iam-role-policy-attachment";
 import { IamPolicy } from "@cdktf/provider-aws/lib/iam-policy";
@@ -29,6 +29,14 @@ export class IamStack extends TerraformStack {
     // Add AWS Provider
     new AwsProvider(this, "aws", {
       region: config.awsRegion,
+    });
+
+    // Add S3Backend
+    new S3Backend(this, {
+      bucket: `express-app-tfstate-${config.awsAccountId}`,
+      key: `${config.environment}/iam/terraform.tfstate`, // Environment-specific
+      region: config.awsRegion,
+      encrypt: true,
     });
 
     // ===== Task Execution Role =====
