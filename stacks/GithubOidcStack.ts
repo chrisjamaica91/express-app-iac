@@ -247,5 +247,49 @@ export class GithubOidcStack extends TerraformStack {
     role: githubActionsRole.name,
     policyArn: s3StatePolicy.arn,
     });
+
+    // Policy for Terraform read operations (describe/list infrastructure)
+    const terraformReadPolicy = new IamPolicy(this, "terraform-read-policy", {
+      name: "github-actions-terraform-read-policy",
+      description: "Allow Terraform to read AWS infrastructure state",
+      policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Effect: "Allow",
+            Action: [
+              // EC2 read permissions (for VPC, subnets, security groups, etc.)
+              "ec2:DescribeAvailabilityZones",
+              "ec2:DescribeVpcs",
+              "ec2:DescribeSubnets",
+              "ec2:DescribeSecurityGroups",
+              "ec2:DescribeSecurityGroupRules",
+              "ec2:DescribeInternetGateways",
+              "ec2:DescribeNatGateways",
+              "ec2:DescribeRouteTables",
+              "ec2:DescribeAddresses",
+              "ec2:DescribeNetworkInterfaces",
+              // ECR read permissions
+              "ecr:DescribeRepositories",
+              // ECS read permissions
+              "ecs:DescribeClusters",
+              "ecs:DescribeServices",
+              "ecs:DescribeTaskDefinition",
+              "ecs:ListTaskDefinitions",
+              // CloudWatch Logs read permissions
+              "logs:DescribeLogGroups",
+              "logs:DescribeLogStreams",
+            ],
+            Resource: "*", // Read-only operations, safe to use "*"
+          },
+        ],
+      }),
+      tags: config.tags,
+    });
+
+    new IamRolePolicyAttachment(this, "terraform-read-policy-attachment", {
+      role: githubActionsRole.name,
+      policyArn: terraformReadPolicy.arn,
+    });
   }
 }
