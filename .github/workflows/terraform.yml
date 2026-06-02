@@ -328,6 +328,25 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+         # Add debug output
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "ERROR: OPENAI_API_KEY is not set!"
+            exit 1
+          fi
+          
+          # ... rest of the script
+          
+          # Add debug for API response
+          echo "API Response: $RESPONSE"
+          
+          # Check for errors in response
+          ERROR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+          if [ -n "$ERROR" ]; then
+            echo "OpenAI API Error: $ERROR"
+            AI_REVIEW="⚠️ AI analysis temporarily unavailable. Manual review recommended."
+          else
+            AI_REVIEW=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "AI analysis unavailable"')
+          fi
           # Capture scan results from previous jobs
           VALIDATION_STATUS="${{ needs.validate.result }}"
           PLAN_STATUS="${{ needs.plan.result }}"
