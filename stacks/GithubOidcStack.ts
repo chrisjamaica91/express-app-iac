@@ -248,48 +248,74 @@ export class GithubOidcStack extends TerraformStack {
     policyArn: s3StatePolicy.arn,
     });
 
-    // Policy for Terraform read operations (describe/list infrastructure)
-    const terraformReadPolicy = new IamPolicy(this, "terraform-read-policy", {
-      name: "github-actions-terraform-read-policy",
-      description: "Allow Terraform to read AWS infrastructure state",
-      policy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [
-          {
-            Effect: "Allow",
-            Action: [
-              // EC2 read permissions (for VPC, subnets, security groups, etc.)
-              "ec2:DescribeAvailabilityZones",
-              "ec2:DescribeVpcs",
-              "ec2:DescribeSubnets",
-              "ec2:DescribeSecurityGroups",
-              "ec2:DescribeSecurityGroupRules",
-              "ec2:DescribeInternetGateways",
-              "ec2:DescribeNatGateways",
-              "ec2:DescribeRouteTables",
-              "ec2:DescribeAddresses",
-              "ec2:DescribeNetworkInterfaces",
-              // ECR read permissions
-              "ecr:DescribeRepositories",
-              // ECS read permissions
-              "ecs:DescribeClusters",
-              "ecs:DescribeServices",
-              "ecs:DescribeTaskDefinition",
-              "ecs:ListTaskDefinitions",
-              // CloudWatch Logs read permissions
-              "logs:DescribeLogGroups",
-              "logs:DescribeLogStreams",
-            ],
-            Resource: "*", // Read-only operations, safe to use "*"
-          },
+    // Policy for Terraform read operations (comprehensive)
+const terraformReadPolicy = new IamPolicy(this, "terraform-read-policy", {
+  name: "github-actions-terraform-read-policy",
+  description: "Allow Terraform to read AWS infrastructure state",
+  policy: JSON.stringify({
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Effect: "Allow",
+        Action: [
+          // ===== EC2/VPC - All read operations =====
+          "ec2:Describe*",
+          "ec2:GetConsoleOutput",
+          "ec2:GetConsoleScreenshot",
+          
+          // ===== ECR - All read operations =====
+          "ecr:Describe*",
+          "ecr:List*",
+          "ecr:Get*",
+          "ecr:BatchGetImage",
+          "ecr:BatchCheckLayerAvailability",
+          
+          // ===== ECS - All read operations =====
+          "ecs:Describe*",
+          "ecs:List*",
+          
+          // ===== CloudWatch Logs - All read operations =====
+          "logs:Describe*",
+          "logs:List*",
+          "logs:Get*",
+          "logs:FilterLogEvents",
+          "logs:TestMetricFilter",
+          
+          // ===== Elastic Load Balancing - All read operations =====
+          "elasticloadbalancing:Describe*",
+          
+          // ===== IAM - Read operations for role verification =====
+          "iam:GetRole",
+          "iam:GetRolePolicy",
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies",
+          "iam:ListPolicyVersions",
+          "iam:ListInstanceProfilesForRole",
+          
+          // ===== Application Auto Scaling (if used) =====
+          "application-autoscaling:Describe*",
+          
+          // ===== Service Discovery (if used) =====
+          "servicediscovery:Get*",
+          "servicediscovery:List*",
+          
+          // ===== Secrets Manager (if used) =====
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:ListSecrets",
+          "secretsmanager:ListSecretVersionIds",
         ],
-      }),
-      tags: config.tags,
-    });
+        Resource: "*", // Read-only operations, AWS best practice allows "*"
+      },
+    ],
+  }),
+  tags: config.tags,
+});
 
-    new IamRolePolicyAttachment(this, "terraform-read-policy-attachment", {
-      role: githubActionsRole.name,
-      policyArn: terraformReadPolicy.arn,
-    });
+new IamRolePolicyAttachment(this, "terraform-read-policy-attachment", {
+  role: githubActionsRole.name,
+  policyArn: terraformReadPolicy.arn,
+});
   }
 }
