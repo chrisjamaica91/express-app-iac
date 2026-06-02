@@ -3,30 +3,30 @@ name: Terraform Infrastructure
 on:
   pull_request:
     paths:
-      - 'stacks/**'
-      - 'constructs/**'
-      - 'config/**'
-      - 'main.ts'
-      - 'cdktf.json'
+      - "stacks/**"
+      - "constructs/**"
+      - "config/**"
+      - "main.ts"
+      - "cdktf.json"
   push:
     branches:
       - main
     paths:
-      - 'stacks/**'
-      - 'constructs/**'
-      - 'config/**'
-      - 'main.ts'
-      - 'cdktf.json'
+      - "stacks/**"
+      - "constructs/**"
+      - "config/**"
+      - "main.ts"
+      - "cdktf.json"
   workflow_dispatch:
 
 permissions:
-  id-token: write   # Required for OIDC
+  id-token: write # Required for OIDC
   contents: read
   pull-requests: write
 
 env:
   AWS_REGION: us-east-2
-  NODE_VERSION: '20'
+  NODE_VERSION: "20"
 
 jobs:
   validate:
@@ -40,13 +40,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Install CDKTF CLI
-        run: npm install -g cdktf-cli@latest
 
       - name: TypeScript type check
         run: npx tsc --noEmit
@@ -69,9 +66,9 @@ jobs:
       - name: Run Terrascan
         uses: tenable/terrascan-action@v1.5.0
         with:
-          iac_type: 'terraform'
-          iac_dir: 'cdktf.out/stacks/express-app-iac'
-          policy_type: 'aws'
+          iac_type: "terraform"
+          iac_dir: "cdktf.out/stacks/express-app-iac"
+          policy_type: "aws"
           only_warn: true
           sarif_upload: false
 
@@ -83,15 +80,14 @@ jobs:
           soft_fail: true
           output_format: cli
 
-      - name: Install tfsec
-        run: |
-          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
-          sudo mv tfsec /usr/local/bin/
-
-      - name: Run tfsec
-        run: |
-          cd cdktf.out/stacks/express-app-iac
-          tfsec . --soft-fail
+      - name: Run Trivy IaC Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "config"
+          scan-ref: "cdktf.out/stacks/express-app-iac"
+          format: "table"
+          exit-code: "0"
+          severity: "CRITICAL,HIGH,MEDIUM"
 
   plan:
     name: Terraform Plan
@@ -113,10 +109,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
 
       - name: CDKTF Plan
         run: |
@@ -152,10 +153,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
 
       - name: CDKTF Deploy
         run: cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
@@ -195,7 +201,7 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --query 'services[0].{Running:runningCount,Desired:desiredCount,Status:status}' \
             --output json)
-          
+
           # Get recent CloudWatch logs (last 5 minutes)
           LOG_EVENTS=$(aws logs filter-log-events \
             --log-group-name /ecs/express-app-service \
@@ -204,28 +210,28 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --query 'events[*].message' \
             --output text 2>/dev/null || echo "No logs available")
-          
+
           # Get ALB target health
           TG_ARN=$(aws elbv2 describe-target-groups \
             --names express-app-alb-tg \
             --region ${{ env.AWS_REGION }} \
             --query 'TargetGroups[0].TargetGroupArn' \
             --output text)
-          
+
           TARGET_HEALTH=$(aws elbv2 describe-target-health \
             --target-group-arn $TG_ARN \
             --region ${{ env.AWS_REGION }} \
             --query 'TargetHealthDescriptions[*].{State:TargetHealth.State,Reason:TargetHealth.Reason}' \
             --output json)
-          
+
           echo "service-status<<EOF" >> $GITHUB_OUTPUT
           echo "$SERVICE_STATUS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          
+
           echo "logs<<EOF" >> $GITHUB_OUTPUT
           echo "$LOG_EVENTS" | head -c 2000 >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          
+
           echo "target-health<<EOF" >> $GITHUB_OUTPUT
           echo "$TARGET_HEALTH" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -237,35 +243,35 @@ jobs:
           # Prepare context for AI
           DEPLOYMENT_STATUS="${{ needs.deploy.result }}"
           COMMIT_MSG=$(git log -1 --pretty=%B || echo "Deployment from GitHub Actions")
-          
+
           # Create prompt for OpenAI
           cat > prompt.txt << 'EOFPROMPT'
           You are a DevOps expert analyzing an AWS ECS Fargate deployment.
-          
+
           **Deployment Status:** $DEPLOYMENT_STATUS
           **Commit:** ${{ github.sha }}
           **Message:** $COMMIT_MSG
-          
+
           **ECS Service Status:**
           ${{ steps.metrics.outputs.service-status }}
-          
+
           **Target Health:**
           ${{ steps.metrics.outputs.target-health }}
-          
+
           **Recent Logs (last 5 min):**
           ${{ steps.metrics.outputs.logs }}
-          
+
           Provide a concise analysis (max 200 words):
           1. **Health Assessment** - Overall deployment health (✅/⚠️/❌)
           2. **Key Observations** - Notable patterns in logs or metrics
           3. **Action Items** - Specific recommendations (if any issues detected)
           4. **Performance Notes** - Any performance insights
-          
+
           Be specific and actionable. Focus on real issues, not hypotheticals.
           EOFPROMPT
-          
+
           PROMPT_CONTENT=$(cat prompt.txt | envsubst)
-          
+
           # Call OpenAI API
           RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
             -H "Content-Type: application/json" \
@@ -285,10 +291,10 @@ jobs:
               \"temperature\": 0.3,
               \"max_tokens\": 400
             }")
-          
+
           # Extract AI response
           AI_ANALYSIS=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "AI analysis unavailable"')
-          
+
           # Post to GitHub Actions summary
           echo "## 🤖 AI Deployment Analysis" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -296,7 +302,106 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "_Analysis powered by OpenAI GPT-4o-mini_" >> $GITHUB_STEP_SUMMARY
-          
+
           # Also output to console
           echo "=== AI Analysis ==="
           echo "$AI_ANALYSIS"
+
+  ai-scan-analysis:
+    name: AI Scan Analysis
+    runs-on: ubuntu-latest
+    needs: [validate, plan]
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download scan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cdktf-out
+          path: cdktf.out/
+
+      - name: Analyze scans with AI
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # Validate API key is set
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "ERROR: OPENAI_API_KEY is not set!"
+            echo "AI analysis unavailable" > ai-review.txt
+            exit 0
+          fi
+
+          # Capture scan results from previous jobs
+          VALIDATION_STATUS="${{ needs.validate.result }}"
+          PLAN_STATUS="${{ needs.plan.result }}"
+
+          # Build prompt
+          PROMPT="Analyze this Terraform infrastructure change:
+
+          Validation Status: $VALIDATION_STATUS
+          Plan Status: $PLAN_STATUS
+          PR Title: ${{ github.event.pull_request.title }}
+          Author: ${{ github.actor }}
+
+          Provide a concise review (max 200 words):
+          1. Security Assessment - Any concerns from scans?
+          2. Infrastructure Changes - What resources are affected?
+          3. Recommendation - Approve, request changes, or concerns?
+          4. Best Practice Suggestions
+
+          Be constructive and specific."
+
+          # Call OpenAI API
+          PROMPT_JSON=$(echo "$PROMPT" | jq -Rs .)
+
+          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d "{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a senior DevOps engineer reviewing infrastructure code.\"},{\"role\":\"user\",\"content\":$PROMPT_JSON}],\"temperature\":0.3,\"max_tokens\":400}")
+
+          # Debug output
+          echo "API Response received (first 200 chars):"
+          echo "$RESPONSE" | head -c 200
+          echo ""
+
+          # Check for errors in response
+          ERROR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+          if [ -n "$ERROR" ]; then
+            echo "OpenAI API Error: $ERROR"
+            AI_REVIEW="⚠️ AI analysis temporarily unavailable: $ERROR"
+          else
+            AI_REVIEW=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "AI analysis unavailable"')
+          fi
+
+          # Save for PR comment
+          echo "$AI_REVIEW" > ai-review.txt
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const aiReview = fs.readFileSync('ai-review.txt', 'utf8');
+
+            const comment = `## 🤖 AI Infrastructure Review
+
+            ${aiReview}
+
+            ---
+
+            **Scan Results:**
+            - ✅ Validate: ${{ needs.validate.result }}
+            - ✅ Plan: ${{ needs.plan.result }}
+
+            *Powered by OpenAI GPT-4o-mini*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
