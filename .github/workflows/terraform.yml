@@ -45,9 +45,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install CDKTF CLI
-        run: npm install -g cdktf-cli@latest
-
       - name: TypeScript type check
         run: npx tsc --noEmit
 

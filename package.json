@@ -4,12 +4,12 @@
   "main": "index.js",
   "scripts": {
     "test": "jest",
-    "get": "cdktf get",
+    "get": "npx cdktf get",
     "build": "tsc",
-    "synth": "cdktf synth",
-    "deploy": "cdktf deploy",
-    "destroy": "cdktf destroy",
-    "diff": "cdktf diff",
+    "synth": "npx cdktf synth",
+    "deploy": "npx cdktf deploy",
+    "destroy": "npx cdktf destroy",
+    "diff": "npx cdktf diff",
     "watch": "tsc -w"
   },
   "keywords": [],

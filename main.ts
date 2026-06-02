@@ -4,7 +4,7 @@ dotenv.config();
 
 
 import { Construct } from "constructs";
-import { App, TerraformStack, TerraformOutput } from "cdktf";
+import { App, TerraformStack, TerraformOutput, S3Backend } from "cdktf";
 import { AwsProvider } from "@cdktf/provider-aws/lib/provider";
 import { VpcConstruct } from './constructs/VpcConstruct';
 import { EcrConstruct } from './constructs/EcrConstruct';
@@ -13,11 +13,19 @@ import { EcsConstruct } from './constructs/EcsConstruct';
 import { IamStack } from './stacks/IamStack';
 import { getConfig } from "./config";
 import { GithubOidcStack } from "./stacks/GithubOidcStack";
+import { TerraformBackendStack } from "./stacks/TerraformBackendStack";
 
 // Load config (now .env is already loaded)
 const config = getConfig(process.env.ENVIRONMENT || 'dev');
 
 const app = new App();
+
+// Create the backend bucket FIRST (before other stacks reference it)
+new TerraformBackendStack(app, "terraform-backend", {
+  awsRegion: config.awsRegion,
+  bucketName: `express-app-tfstate-${config.awsAccountId}`,
+  tags: config.tags,
+});
 
 const githubOidcStack = new GithubOidcStack(app, "github-oidc", {
   awsRegion: config.awsRegion,
@@ -43,6 +51,14 @@ class ExpressAppStack extends TerraformStack {
     // Configure AWS Provider
     new AwsProvider(this, "aws", {
       region: config.awsRegion,
+    });
+
+    // Configure S3 backend with native locking
+    new S3Backend(this, {
+      bucket: `express-app-tfstate-${config.awsAccountId}`,
+      key: `${config.environment}/express-app-iac/terraform.tfstate`,
+      region: config.awsRegion,
+      encrypt: true,
     });
 
     // Create VPC
