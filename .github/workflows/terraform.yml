@@ -188,7 +188,7 @@ jobs:
     name: AI Deployment Analysis
     runs-on: ubuntu-latest
     needs: deploy
-    if: always() && (github.ref == 'refs/heads/main' && github.event_name == 'push')
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
