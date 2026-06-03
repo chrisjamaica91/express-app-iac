@@ -167,7 +167,7 @@ jobs:
           terraform_version: "1.9.0"
 
       - name: CDKTF Deploy
-        run: npx cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
+        run: npx cdktf deploy express-app-iam express-app-iac --auto-approve
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
