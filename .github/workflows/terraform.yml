@@ -2,12 +2,8 @@ name: Terraform Infrastructure
 
 on:
   pull_request:
-    paths:
-      - "stacks/**"
-      - "constructs/**"
-      - "config/**"
-      - "main.ts"
-      - "cdktf.json"
+    branches:
+      - main
   push:
     branches:
       - main
@@ -124,11 +120,17 @@ jobs:
           npm run synth
           cd cdktf.out/stacks/express-app-iac
           terraform init
-          terraform plan -out=tfplan
+          terraform plan -out=tfplan | tee ../../../terraform-plan.txt
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          ENVIRONMENT: dev
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform-plan.txt
+          retention-days: 5
 
   deploy:
     name: Deploy Infrastructure
@@ -164,11 +166,11 @@ jobs:
           terraform_version: "1.9.0"
 
       - name: CDKTF Deploy
-        run: cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
+        run: npx cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          ENVIRONMENT: dev
+          
 
       - name: Post deployment summary
         run: |
@@ -182,7 +184,7 @@ jobs:
     name: AI Deployment Analysis
     runs-on: ubuntu-latest
     needs: deploy
-    if: always() && (github.ref == 'refs/heads/main' && github.event_name == 'push')
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -324,6 +326,12 @@ jobs:
           name: cdktf-out
           path: cdktf.out/
 
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: .
+
       - name: Analyze scans with AI
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -387,9 +395,34 @@ jobs:
             const fs = require('fs');
             const aiReview = fs.readFileSync('ai-review.txt', 'utf8');
 
+            // Read terraform plan output
+            let planOutput = '';
+            try {
+              planOutput = fs.readFileSync('terraform-plan.txt', 'utf8');
+              // Truncate if too long (GitHub comment limit is ~65k chars)
+              if (planOutput.length > 50000) {
+                planOutput = planOutput.substring(0, 50000) + '\n\n... (truncated - see workflow logs for full output)';
+              }
+            } catch (error) {
+              planOutput = 'Plan output not available';
+            }
+
             const comment = `## 🤖 AI Infrastructure Review
 
             ${aiReview}
+
+            ---
+
+            ## 📋 Terraform Plan Output
+
+            <details>
+            <summary>Click to expand plan details</summary>
+
+            \`\`\`hcl
+            ${planOutput}
+            \`\`\`
+
+            </details>
 
             ---
 
