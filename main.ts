@@ -155,4 +155,3 @@ class ExpressAppStack extends TerraformStack {
 
 new ExpressAppStack(app, "express-app-iac");
 app.synth();
-// Updated Wed Jun  3 19:24:40 EDT 2026
