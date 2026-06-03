@@ -2,12 +2,8 @@ name: Terraform Infrastructure
 
 on:
   pull_request:
-    paths:
-      - "stacks/**"
-      - "constructs/**"
-      - "config/**"
-      - "main.ts"
-      - "cdktf.json"
+    branches:
+      - main
   push:
     branches:
       - main
