@@ -174,7 +174,7 @@ jobs:
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          ENVIRONMENT: dev
+          
 
       - name: Post deployment summary
         run: |
