@@ -2,21 +2,20 @@ import * as dotenv from "dotenv";
 // Load environment variables
 dotenv.config();
 
-
 import { Construct } from "constructs";
 import { App, TerraformStack, TerraformOutput, S3Backend } from "cdktf";
 import { AwsProvider } from "@cdktf/provider-aws/lib/provider";
-import { VpcConstruct } from './constructs/VpcConstruct';
-import { EcrConstruct } from './constructs/EcrConstruct';
-import { AlbConstruct } from './constructs/AlbConstruct';
-import { EcsConstruct } from './constructs/EcsConstruct';
-import { IamStack } from './stacks/IamStack';
+import { VpcConstruct } from "./constructs/VpcConstruct";
+import { EcrConstruct } from "./constructs/EcrConstruct";
+import { AlbConstruct } from "./constructs/AlbConstruct";
+import { EcsConstruct } from "./constructs/EcsConstruct";
+import { IamStack } from "./stacks/IamStack";
 import { getConfig } from "./config";
 import { GithubOidcStack } from "./stacks/GithubOidcStack";
 import { TerraformBackendStack } from "./stacks/TerraformBackendStack";
 
 // Load config (now .env is already loaded)
-const config = getConfig(process.env.ENVIRONMENT || 'dev');
+const config = getConfig(process.env.ENVIRONMENT || "dev");
 
 const app = new App();
 
@@ -27,11 +26,12 @@ new TerraformBackendStack(app, "terraform-backend", {
   tags: config.tags,
 });
 
+// the trust policy is configured to allow GitHub's OIDC provider to assume this role, but only for the specified organization and repositories. This ensures that only workflows from the allowed repos can authenticate and deploy infrastructure changes.
 const githubOidcStack = new GithubOidcStack(app, "github-oidc", {
   awsRegion: config.awsRegion,
   awsAccountId: config.awsAccountId,
   githubOrg: config.githubOrg,
-  githubRepos: ["turbovets-assessment", "express-app-iac"],
+  githubRepos: ["express-app", "express-app-iac"],
   tags: config.tags,
 });
 
@@ -43,7 +43,7 @@ const iamStack = new IamStack(app, "express-app-iam", {
   ecrRepositoryName: config.ecr.repositoryName,
   tags: config.tags,
 });
-  
+
 class ExpressAppStack extends TerraformStack {
   constructor(scope: Construct, id: string) {
     super(scope, id);
@@ -123,7 +123,8 @@ class ExpressAppStack extends TerraformStack {
 
     new TerraformOutput(this, "alb-dns-name", {
       value: alb.outputs.albDnsName,
-      description: "Load balancer DNS name - use this to access the application",
+      description:
+        "Load balancer DNS name - use this to access the application",
     });
 
     new TerraformOutput(this, "ecs-cluster-name", {
