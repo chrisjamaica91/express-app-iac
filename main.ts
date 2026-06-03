@@ -26,6 +26,7 @@ new TerraformBackendStack(app, "terraform-backend", {
   tags: config.tags,
 });
 
+// the trust policy is configured to allow GitHub's OIDC provider to assume this role, but only for the specified organization and repositories. This ensures that only workflows from the allowed repos can authenticate and deploy infrastructure changes.
 const githubOidcStack = new GithubOidcStack(app, "github-oidc", {
   awsRegion: config.awsRegion,
   awsAccountId: config.awsAccountId,
