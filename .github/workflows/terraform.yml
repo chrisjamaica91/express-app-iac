@@ -120,7 +120,8 @@ jobs:
           npm run synth
           cd cdktf.out/stacks/express-app-iac
           terraform init
-          terraform plan -out=tfplan | tee ../../../terraform-plan.txt
+          terraform plan -no-color -out=tfplan
+          terraform show -no-color tfplan > ../../../terraform-plan.txt
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
@@ -170,7 +171,6 @@ jobs:
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          
 
       - name: Post deployment summary
         run: |
