@@ -135,7 +135,6 @@ jobs:
           name: terraform-plan
           path: terraform-plan.txt
           retention-days: 5
-          ENVIRONMENT: dev
 
   deploy:
     name: Deploy Infrastructure
@@ -171,21 +170,7 @@ jobs:
           terraform_version: "1.9.0"
 
       - name: CDKTF Deploy
-        gh api -X PUT /repos/chrisjamaica91/express-app-iac/branches/main/protection \
-          -F required_status_checks[strict]=true \
-          -f required_status_checks[checks][][context]="Terraform Infrastructure / Validate and Scan (pull_request)" \
-          -f required_status_checks[checks][][context]="Terraform Infrastructure / Terraform Plan (pull_request)" \
-          -f required_status_checks[checks][][context]="Terraform Infrastructure / AI Scan Analysis (pull_request)" \
-          -F required_pull_request_reviews[required_approving_review_count]=1 \
-          -F required_pull_request_reviews[dismiss_stale_reviews]=true \
-          -F enforce_admins=false          gh api -X PUT /repos/chrisjamaica91/express-app-iac/branches/main/protection \
-            -F required_status_checks[strict]=true \
-            -f required_status_checks[checks][][context]="Terraform Infrastructure / Validate and Scan (pull_request)" \
-            -f required_status_checks[checks][][context]="Terraform Infrastructure / Terraform Plan (pull_request)" \
-            -f required_status_checks[checks][][context]="Terraform Infrastructure / AI Scan Analysis (pull_request)" \
-            -F required_pull_request_reviews[required_approving_review_count]=1 \
-            -F required_pull_request_reviews[dismiss_stale_reviews]=true \
-            -F enforce_admins=false        run: npx cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
+        run: npx cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
@@ -413,7 +398,7 @@ jobs:
           script: |
             const fs = require('fs');
             const aiReview = fs.readFileSync('ai-review.txt', 'utf8');
-            
+
             // Read terraform plan output
             let planOutput = '';
             try {
