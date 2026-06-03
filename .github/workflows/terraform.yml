@@ -124,10 +124,17 @@ jobs:
           npm run synth
           cd cdktf.out/stacks/express-app-iac
           terraform init
-          terraform plan -out=tfplan
+          terraform plan -out=tfplan | tee ../../../terraform-plan.txt
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform-plan.txt
+          retention-days: 5
           ENVIRONMENT: dev
 
   deploy:
@@ -164,7 +171,21 @@ jobs:
           terraform_version: "1.9.0"
 
       - name: CDKTF Deploy
-        run: cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
+        gh api -X PUT /repos/chrisjamaica91/express-app-iac/branches/main/protection \
+          -F required_status_checks[strict]=true \
+          -f required_status_checks[checks][][context]="Terraform Infrastructure / Validate and Scan (pull_request)" \
+          -f required_status_checks[checks][][context]="Terraform Infrastructure / Terraform Plan (pull_request)" \
+          -f required_status_checks[checks][][context]="Terraform Infrastructure / AI Scan Analysis (pull_request)" \
+          -F required_pull_request_reviews[required_approving_review_count]=1 \
+          -F required_pull_request_reviews[dismiss_stale_reviews]=true \
+          -F enforce_admins=false          gh api -X PUT /repos/chrisjamaica91/express-app-iac/branches/main/protection \
+            -F required_status_checks[strict]=true \
+            -f required_status_checks[checks][][context]="Terraform Infrastructure / Validate and Scan (pull_request)" \
+            -f required_status_checks[checks][][context]="Terraform Infrastructure / Terraform Plan (pull_request)" \
+            -f required_status_checks[checks][][context]="Terraform Infrastructure / AI Scan Analysis (pull_request)" \
+            -F required_pull_request_reviews[required_approving_review_count]=1 \
+            -F required_pull_request_reviews[dismiss_stale_reviews]=true \
+            -F enforce_admins=false        run: npx cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
@@ -324,6 +345,12 @@ jobs:
           name: cdktf-out
           path: cdktf.out/
 
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: .
+
       - name: Analyze scans with AI
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -386,10 +413,35 @@ jobs:
           script: |
             const fs = require('fs');
             const aiReview = fs.readFileSync('ai-review.txt', 'utf8');
+            
+            // Read terraform plan output
+            let planOutput = '';
+            try {
+              planOutput = fs.readFileSync('terraform-plan.txt', 'utf8');
+              // Truncate if too long (GitHub comment limit is ~65k chars)
+              if (planOutput.length > 50000) {
+                planOutput = planOutput.substring(0, 50000) + '\n\n... (truncated - see workflow logs for full output)';
+              }
+            } catch (error) {
+              planOutput = 'Plan output not available';
+            }
 
             const comment = `## 🤖 AI Infrastructure Review
 
             ${aiReview}
+
+            ---
+
+            ## 📋 Terraform Plan Output
+
+            <details>
+            <summary>Click to expand plan details</summary>
+
+            \`\`\`hcl
+            ${planOutput}
+            \`\`\`
+
+            </details>
 
             ---
 
