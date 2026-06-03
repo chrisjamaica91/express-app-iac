@@ -155,4 +155,3 @@ class ExpressAppStack extends TerraformStack {
 
 new ExpressAppStack(app, "express-app-iac");
 app.synth();
-// Trigger PR checks
