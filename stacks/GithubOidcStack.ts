@@ -26,25 +26,29 @@ export class GithubOidcStack extends TerraformStack {
 
     // Add S3Backend
     new S3Backend(this, {
-        bucket: `express-app-tfstate-${config.awsAccountId}`,
-        key: "github-oidc/terraform.tfstate", // NOT environment-specific
-        region: config.awsRegion,
-        encrypt: true,
+      bucket: `express-app-tfstate-${config.awsAccountId}`,
+      key: "github-oidc/terraform.tfstate", // NOT environment-specific
+      region: config.awsRegion,
+      encrypt: true,
     });
 
     // Create OIDC Provider for GitHub Actions
-    const oidcProvider = new IamOpenidConnectProvider(this, "github-oidc-provider", {
-      url: "https://token.actions.githubusercontent.com",
-      clientIdList: ["sts.amazonaws.com"],
-      thumbprintList: [
-        "6938fd4d98bab03faadb97b34396831e3780aea1", // GitHub Actions thumbprint (2024+)
-        "1c58a3a8518e8759bf075b76b750d4f2df264fcd", // Backup thumbprint
-      ],
-      tags: {
-        ...config.tags,
-        Name: "github-actions-oidc-provider",
+    const oidcProvider = new IamOpenidConnectProvider(
+      this,
+      "github-oidc-provider",
+      {
+        url: "https://token.actions.githubusercontent.com",
+        clientIdList: ["sts.amazonaws.com"],
+        thumbprintList: [
+          "6938fd4d98bab03faadb97b34396831e3780aea1", // GitHub Actions thumbprint (2024+)
+          "1c58a3a8518e8759bf075b76b750d4f2df264fcd", // Backup thumbprint
+        ],
+        tags: {
+          ...config.tags,
+          Name: "github-actions-oidc-provider",
+        },
       },
-    });
+    );
 
     // Create IAM role for GitHub Actions
     const githubActionsRole = new IamRole(this, "github-actions-role", {
@@ -64,9 +68,10 @@ export class GithubOidcStack extends TerraformStack {
               },
               StringLike: {
                 // Allow all repos in your org, or specific repos
-                "token.actions.githubusercontent.com:sub": config.githubRepos.map(
-                  (repo) => `repo:${config.githubOrg}/${repo}:*`
-                ),
+                "token.actions.githubusercontent.com:sub":
+                  config.githubRepos.map(
+                    (repo) => `repo:${config.githubOrg}/${repo}:*`,
+                  ),
               },
             },
           },
@@ -87,9 +92,7 @@ export class GithubOidcStack extends TerraformStack {
         Statement: [
           {
             Effect: "Allow",
-            Action: [
-              "ecr:GetAuthorizationToken",
-            ],
+            Action: ["ecr:GetAuthorizationToken"],
             Resource: "*",
           },
           {
@@ -138,9 +141,7 @@ export class GithubOidcStack extends TerraformStack {
           },
           {
             Effect: "Allow",
-            Action: [
-              "iam:PassRole",
-            ],
+            Action: ["iam:PassRole"],
             Resource: [
               `arn:aws:iam::${config.awsAccountId}:role/express-app-*-task-execution-role`,
               `arn:aws:iam::${config.awsAccountId}:role/express-app-*-task-role`,
@@ -182,10 +183,11 @@ export class GithubOidcStack extends TerraformStack {
       policyArn: logsPolicy.arn,
     });
 
-        // Policy for ALB access (for deployment verification and AI analysis)
+    // Policy for ALB access (for deployment verification and AI analysis)
     const albPolicy = new IamPolicy(this, "alb-policy", {
       name: "github-actions-alb-policy",
-      description: "Allow GitHub Actions to describe load balancers and target groups",
+      description:
+        "Allow GitHub Actions to describe load balancers and target groups",
       policy: JSON.stringify({
         Version: "2012-10-17",
         Statement: [
@@ -219,103 +221,170 @@ export class GithubOidcStack extends TerraformStack {
 
     // Policy for S3 state backend access (with native locking)
     const s3StatePolicy = new IamPolicy(this, "s3-state-policy", {
-    name: "github-actions-s3-state-policy",
-    description: "Allow GitHub Actions to access Terraform state in S3",
-    policy: JSON.stringify({
+      name: "github-actions-s3-state-policy",
+      description: "Allow GitHub Actions to access Terraform state in S3",
+      policy: JSON.stringify({
         Version: "2012-10-17",
         Statement: [
-        {
+          {
             Effect: "Allow",
             Action: [
-            "s3:GetObject",
-            "s3:PutObject",
-            "s3:DeleteObject",
-            "s3:ListBucket",
-            "s3:GetObjectVersion", // For locking
+              "s3:GetObject",
+              "s3:PutObject",
+              "s3:DeleteObject",
+              "s3:ListBucket",
+              "s3:GetObjectVersion", // For locking
             ],
             Resource: [
-            `arn:aws:s3:::express-app-tfstate-${config.awsAccountId}`, // ← Dynamic
-          `arn:aws:s3:::express-app-tfstate-${config.awsAccountId}/*`, // ← Dynamic
+              `arn:aws:s3:::express-app-tfstate-${config.awsAccountId}`, // ← Dynamic
+              `arn:aws:s3:::express-app-tfstate-${config.awsAccountId}/*`, // ← Dynamic
             ],
-        },
+          },
         ],
-    }),
-    tags: config.tags,
+      }),
+      tags: config.tags,
     });
 
     new IamRolePolicyAttachment(this, "s3-state-policy-attachment", {
-    role: githubActionsRole.name,
-    policyArn: s3StatePolicy.arn,
+      role: githubActionsRole.name,
+      policyArn: s3StatePolicy.arn,
     });
 
     // Policy for Terraform read operations (comprehensive)
-const terraformReadPolicy = new IamPolicy(this, "terraform-read-policy", {
-  name: "github-actions-terraform-read-policy",
-  description: "Allow Terraform to read AWS infrastructure state",
-  policy: JSON.stringify({
-    Version: "2012-10-17",
-    Statement: [
-      {
-        Effect: "Allow",
-        Action: [
-          // ===== EC2/VPC - All read operations =====
-          "ec2:Describe*",
-          "ec2:GetConsoleOutput",
-          "ec2:GetConsoleScreenshot",
-          
-          // ===== ECR - All read operations =====
-          "ecr:Describe*",
-          "ecr:List*",
-          "ecr:Get*",
-          "ecr:BatchGetImage",
-          "ecr:BatchCheckLayerAvailability",
-          
-          // ===== ECS - All read operations =====
-          "ecs:Describe*",
-          "ecs:List*",
-          
-          // ===== CloudWatch Logs - All read operations =====
-          "logs:Describe*",
-          "logs:List*",
-          "logs:Get*",
-          "logs:FilterLogEvents",
-          "logs:TestMetricFilter",
-          
-          // ===== Elastic Load Balancing - All read operations =====
-          "elasticloadbalancing:Describe*",
-          
-          // ===== IAM - Read operations for role verification =====
-          "iam:GetRole",
-          "iam:GetRolePolicy",
-          "iam:GetPolicy",
-          "iam:GetPolicyVersion",
-          "iam:ListRolePolicies",
-          "iam:ListAttachedRolePolicies",
-          "iam:ListPolicyVersions",
-          "iam:ListInstanceProfilesForRole",
-          
-          // ===== Application Auto Scaling (if used) =====
-          "application-autoscaling:Describe*",
-          
-          // ===== Service Discovery (if used) =====
-          "servicediscovery:Get*",
-          "servicediscovery:List*",
-          
-          // ===== Secrets Manager (if used) =====
-          "secretsmanager:DescribeSecret",
-          "secretsmanager:ListSecrets",
-          "secretsmanager:ListSecretVersionIds",
-        ],
-        Resource: "*", // Read-only operations, AWS best practice allows "*"
-      },
-    ],
-  }),
-  tags: config.tags,
-});
+    const terraformReadPolicy = new IamPolicy(this, "terraform-read-policy", {
+      name: "github-actions-terraform-read-policy",
+      description: "Allow Terraform to read AWS infrastructure state",
+      policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Effect: "Allow",
+            Action: [
+              // ===== EC2/VPC - All read operations =====
+              "ec2:Describe*",
+              "ec2:GetConsoleOutput",
+              "ec2:GetConsoleScreenshot",
 
-new IamRolePolicyAttachment(this, "terraform-read-policy-attachment", {
-  role: githubActionsRole.name,
-  policyArn: terraformReadPolicy.arn,
-});
+              // ===== ECR - All read operations =====
+              "ecr:Describe*",
+              "ecr:List*",
+              "ecr:Get*",
+              "ecr:BatchGetImage",
+              "ecr:BatchCheckLayerAvailability",
+
+              // ===== ECS - All read operations =====
+              "ecs:Describe*",
+              "ecs:List*",
+
+              // ===== CloudWatch Logs - All read operations =====
+              "logs:Describe*",
+              "logs:List*",
+              "logs:Get*",
+              "logs:FilterLogEvents",
+              "logs:TestMetricFilter",
+
+              // ===== Elastic Load Balancing - All read operations =====
+              "elasticloadbalancing:Describe*",
+
+              // ===== IAM - Read operations for role verification =====
+              "iam:GetRole",
+              "iam:GetRolePolicy",
+              "iam:GetPolicy",
+              "iam:GetPolicyVersion",
+              "iam:ListRolePolicies",
+              "iam:ListAttachedRolePolicies",
+              "iam:ListPolicyVersions",
+              "iam:ListInstanceProfilesForRole",
+
+              // ===== Application Auto Scaling (if used) =====
+              "application-autoscaling:Describe*",
+
+              // ===== Service Discovery (if used) =====
+              "servicediscovery:Get*",
+              "servicediscovery:List*",
+
+              // ===== Secrets Manager (if used) =====
+              "secretsmanager:DescribeSecret",
+              "secretsmanager:ListSecrets",
+              "secretsmanager:ListSecretVersionIds",
+            ],
+            Resource: "*", // Read-only operations, AWS best practice allows "*"
+          },
+        ],
+      }),
+      tags: config.tags,
+    });
+
+    new IamRolePolicyAttachment(this, "terraform-read-policy-attachment", {
+      role: githubActionsRole.name,
+      policyArn: terraformReadPolicy.arn,
+    });
+
+    // Policy for IAM infrastructure management (OIDC, roles, policies)
+    const iamManagementPolicy = new IamPolicy(this, "iam-management-policy", {
+      name: "github-actions-iam-management-policy",
+      description:
+        "Allow GitHub Actions to manage IAM resources for infrastructure deployment",
+      policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Effect: "Allow",
+            Action: [
+              // OIDC Provider management
+              "iam:GetOpenIDConnectProvider",
+              "iam:CreateOpenIDConnectProvider",
+              "iam:UpdateOpenIDConnectProviderThumbprint",
+              "iam:DeleteOpenIDConnectProvider",
+              "iam:TagOpenIDConnectProvider",
+              "iam:UntagOpenIDConnectProvider",
+              "iam:ListOpenIDConnectProviders",
+
+              // IAM Role management
+              "iam:GetRole",
+              "iam:CreateRole",
+              "iam:UpdateRole",
+              "iam:UpdateAssumeRolePolicy",
+              "iam:DeleteRole",
+              "iam:TagRole",
+              "iam:UntagRole",
+              "iam:ListRoles",
+
+              // IAM Policy management
+              "iam:GetPolicy",
+              "iam:CreatePolicy",
+              "iam:DeletePolicy",
+              "iam:GetPolicyVersion",
+              "iam:CreatePolicyVersion",
+              "iam:DeletePolicyVersion",
+              "iam:ListPolicyVersions",
+              "iam:SetDefaultPolicyVersion",
+              "iam:TagPolicy",
+              "iam:UntagPolicy",
+
+              // Policy attachment management
+              "iam:AttachRolePolicy",
+              "iam:DetachRolePolicy",
+              "iam:PutRolePolicy",
+              "iam:DeleteRolePolicy",
+              "iam:GetRolePolicy",
+              "iam:ListRolePolicies",
+              "iam:ListAttachedRolePolicies",
+
+              // Additional permissions for role configuration
+              "iam:ListInstanceProfilesForRole",
+              "iam:PassRole",
+            ],
+            Resource: "*", // Required for IAM infrastructure management
+          },
+        ],
+      }),
+      tags: config.tags,
+    });
+
+    new IamRolePolicyAttachment(this, "iam-management-policy-attachment", {
+      role: githubActionsRole.name,
+      policyArn: iamManagementPolicy.arn,
+    });
   }
 }
