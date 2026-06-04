@@ -283,6 +283,23 @@ jobs:
     needs: deploy
     if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
+      - name: Detect Environment
+        id: env
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BRANCH="${{ github.base_ref }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+
+          if [[ "$BRANCH" == "main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          elif [[ "$BRANCH" == "staging" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -293,17 +310,19 @@ jobs:
       - name: Gather Deployment Metrics
         id: metrics
         run: |
+          ENV="${{ steps.env.outputs.environment }}"
+
           # Get ECS service status
           SERVICE_STATUS=$(aws ecs describe-services \
-            --cluster express-app-cluster \
-            --services express-app-service \
+            --cluster express-app-${ENV}-cluster \
+            --services express-app-${ENV}-service \
             --region ${{ env.AWS_REGION }} \
             --query 'services[0].{Running:runningCount,Desired:desiredCount,Status:status}' \
             --output json)
 
           # Get recent CloudWatch logs (last 5 minutes)
           LOG_EVENTS=$(aws logs filter-log-events \
-            --log-group-name /ecs/express-app-service \
+            --log-group-name /ecs/express-app-${ENV}-service \
             --start-time $(($(date +%s) - 300))000 \
             --limit 20 \
             --region ${{ env.AWS_REGION }} \
@@ -312,7 +331,7 @@ jobs:
 
           # Get ALB target health
           TG_ARN=$(aws elbv2 describe-target-groups \
-            --names express-app-alb-tg \
+            --names express-app-${ENV}-alb-tg \
             --region ${{ env.AWS_REGION }} \
             --query 'TargetGroups[0].TargetGroupArn' \
             --output text)
