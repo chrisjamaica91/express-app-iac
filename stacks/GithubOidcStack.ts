@@ -83,10 +83,10 @@ export class GithubOidcStack extends TerraformStack {
       },
     });
 
-    // Policy for ECR access (push images)
+    // Policy for ECR access (all actions, scoped to repositories)
     const ecrPolicy = new IamPolicy(this, "ecr-policy", {
       name: "github-actions-ecr-policy",
-      description: "Allow GitHub Actions to push to ECR",
+      description: "Allow GitHub Actions to manage ECR repositories",
       policy: JSON.stringify({
         Version: "2012-10-17",
         Statement: [
@@ -97,17 +97,7 @@ export class GithubOidcStack extends TerraformStack {
           },
           {
             Effect: "Allow",
-            Action: [
-              "ecr:BatchCheckLayerAvailability",
-              "ecr:GetDownloadUrlForLayer",
-              "ecr:BatchGetImage",
-              "ecr:PutImage",
-              "ecr:InitiateLayerUpload",
-              "ecr:UploadLayerPart",
-              "ecr:CompleteLayerUpload",
-              "ecr:DescribeImages",
-              "ecr:DescribeImageScanFindings",
-            ],
+            Action: "ecr:*",
             Resource: `arn:aws:ecr:${config.awsRegion}:${config.awsAccountId}:repository/*`,
           },
         ],
@@ -120,7 +110,7 @@ export class GithubOidcStack extends TerraformStack {
       policyArn: ecrPolicy.arn,
     });
 
-    // Policy for ECS access (scoped to express-app resources)
+    // Policy for ECS access (all actions, scoped to express-app resources)
     const ecsPolicy = new IamPolicy(this, "ecs-policy", {
       name: "github-actions-ecs-policy",
       description: "Allow GitHub Actions to manage ECS resources",
@@ -129,68 +119,27 @@ export class GithubOidcStack extends TerraformStack {
         Statement: [
           {
             Effect: "Allow",
+            Action: "ecs:*",
+            Resource: [
+              `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:cluster/express-app-*`,
+              `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:service/express-app-*/*`,
+              `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:task/express-app-*/*`,
+              `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:task-definition/express-app-*:*`,
+              `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:container-instance/express-app-*/*`,
+              `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:capacity-provider/express-app-*`,
+            ],
+          },
+          {
+            Effect: "Allow",
             Action: [
-              // Read-only operations (require Resource: "*")
-              "ecs:DescribeClusters",
-              "ecs:ListClusters",
-              "ecs:DescribeServices",
-              "ecs:ListServices",
-              "ecs:DescribeTaskDefinition",
-              "ecs:ListTaskDefinitions",
-              "ecs:ListTaskDefinitionFamilies",
-              "ecs:DescribeTasks",
-              "ecs:ListTasks",
-              "ecs:DescribeContainerInstances",
-              "ecs:ListContainerInstances",
-              "ecs:DescribeCapacityProviders",
-              // Task Definition deregister (AWS requires Resource: "*")
+              // List/Describe operations require Resource: "*"
+              "ecs:List*",
+              "ecs:Describe*",
+              // Task definition operations require Resource: "*"
+              "ecs:RegisterTaskDefinition",
               "ecs:DeregisterTaskDefinition",
             ],
             Resource: "*",
-          },
-          {
-            Effect: "Allow",
-            Action: [
-              // Cluster operations
-              "ecs:CreateCluster",
-              "ecs:DeleteCluster",
-              "ecs:UpdateCluster",
-              "ecs:PutClusterCapacityProviders",
-              "ecs:TagResource",
-              "ecs:UntagResource",
-            ],
-            Resource: `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:cluster/express-app-*`,
-          },
-          {
-            Effect: "Allow",
-            Action: [
-              // Service operations
-              "ecs:CreateService",
-              "ecs:DeleteService",
-              "ecs:UpdateService",
-              "ecs:UpdateServicePrimaryTaskSet",
-              "ecs:TagResource",
-              "ecs:UntagResource",
-            ],
-            Resource: `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:service/express-app-*/*`,
-          },
-          {
-            Effect: "Allow",
-            Action: [
-              // Task Definition operations
-              "ecs:RegisterTaskDefinition",
-              "ecs:TagResource",
-            ],
-            Resource: `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:task-definition/express-app-*:*`,
-          },
-          {
-            Effect: "Allow",
-            Action: [
-              // Task operations
-              "ecs:RunTask",
-              "ecs:StopTask",
-            ],
-            Resource: `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:task/express-app-*/*`,
           },
           {
             Effect: "Allow",
@@ -210,7 +159,7 @@ export class GithubOidcStack extends TerraformStack {
       policyArn: ecsPolicy.arn,
     });
 
-    // Policy for CloudWatch Logs (full CRUD)
+    // Policy for CloudWatch Logs (all actions, scoped to /ecs/ logs)
     const logsPolicy = new IamPolicy(this, "logs-policy", {
       name: "github-actions-logs-policy",
       description: "Allow GitHub Actions to manage CloudWatch logs",
@@ -219,22 +168,11 @@ export class GithubOidcStack extends TerraformStack {
         Statement: [
           {
             Effect: "Allow",
-            Action: [
-              "logs:CreateLogGroup",
-              "logs:DeleteLogGroup",
-              "logs:DescribeLogGroups",
-              "logs:PutRetentionPolicy",
-              "logs:DeleteRetentionPolicy",
-              "logs:TagLogGroup",
-              "logs:UntagLogGroup",
-              "logs:CreateLogStream",
-              "logs:DeleteLogStream",
-              "logs:DescribeLogStreams",
-              "logs:FilterLogEvents",
-              "logs:GetLogEvents",
-              "logs:PutLogEvents",
+            Action: "logs:*",
+            Resource: [
+              `arn:aws:logs:${config.awsRegion}:${config.awsAccountId}:log-group:/ecs/*`,
+              `arn:aws:logs:${config.awsRegion}:${config.awsAccountId}:log-group:/ecs/*:*`,
             ],
-            Resource: `arn:aws:logs:${config.awsRegion}:${config.awsAccountId}:log-group:/ecs/*`,
           },
         ],
       }),
@@ -246,7 +184,7 @@ export class GithubOidcStack extends TerraformStack {
       policyArn: logsPolicy.arn,
     });
 
-    // Policy for ALB/ELB access (scoped to express-app resources)
+    // Policy for ALB/ELB access (all actions, scoped to express-app resources)
     const albPolicy = new IamPolicy(this, "alb-policy", {
       name: "github-actions-alb-policy",
       description:
@@ -256,63 +194,18 @@ export class GithubOidcStack extends TerraformStack {
         Statement: [
           {
             Effect: "Allow",
-            Action: [
-              // Read-only operations (require Resource: "*")
-              "elasticloadbalancing:DescribeLoadBalancers",
-              "elasticloadbalancing:DescribeTargetGroups",
-              "elasticloadbalancing:DescribeListeners",
-              "elasticloadbalancing:DescribeRules",
-              "elasticloadbalancing:DescribeTags",
-              "elasticloadbalancing:DescribeLoadBalancerAttributes",
-              "elasticloadbalancing:DescribeTargetGroupAttributes",
-              "elasticloadbalancing:DescribeTargetHealth",
-            ],
-            Resource: "*",
-          },
-          {
-            Effect: "Allow",
-            Action: [
-              "elasticloadbalancing:CreateLoadBalancer",
-              "elasticloadbalancing:DeleteLoadBalancer",
-              "elasticloadbalancing:ModifyLoadBalancerAttributes",
-              "elasticloadbalancing:SetSecurityGroups",
-              "elasticloadbalancing:SetSubnets",
-              "elasticloadbalancing:SetIpAddressType",
-              "elasticloadbalancing:AddTags",
-              "elasticloadbalancing:RemoveTags",
-              // CreateListener needs permissions on the load balancer, not the listener
-              "elasticloadbalancing:CreateListener",
-            ],
-            Resource: `arn:aws:elasticloadbalancing:${config.awsRegion}:${config.awsAccountId}:loadbalancer/app/express-app-*/*`,
-          },
-          {
-            Effect: "Allow",
-            Action: [
-              "elasticloadbalancing:CreateTargetGroup",
-              "elasticloadbalancing:DeleteTargetGroup",
-              "elasticloadbalancing:ModifyTargetGroup",
-              "elasticloadbalancing:ModifyTargetGroupAttributes",
-              "elasticloadbalancing:RegisterTargets",
-              "elasticloadbalancing:DeregisterTargets",
-              "elasticloadbalancing:AddTags",
-              "elasticloadbalancing:RemoveTags",
-            ],
-            Resource: `arn:aws:elasticloadbalancing:${config.awsRegion}:${config.awsAccountId}:targetgroup/express-app-*/*`,
-          },
-          {
-            Effect: "Allow",
-            Action: [
-              "elasticloadbalancing:DeleteListener",
-              "elasticloadbalancing:ModifyListener",
-              "elasticloadbalancing:CreateRule",
-              "elasticloadbalancing:DeleteRule",
-              "elasticloadbalancing:ModifyRule",
-              "elasticloadbalancing:SetRulePriorities",
-            ],
+            Action: "elasticloadbalancing:*",
             Resource: [
+              `arn:aws:elasticloadbalancing:${config.awsRegion}:${config.awsAccountId}:loadbalancer/app/express-app-*/*`,
+              `arn:aws:elasticloadbalancing:${config.awsRegion}:${config.awsAccountId}:targetgroup/express-app-*/*`,
               `arn:aws:elasticloadbalancing:${config.awsRegion}:${config.awsAccountId}:listener/app/express-app-*/*`,
               `arn:aws:elasticloadbalancing:${config.awsRegion}:${config.awsAccountId}:listener-rule/app/express-app-*/*`,
             ],
+          },
+          {
+            Effect: "Allow",
+            Action: "elasticloadbalancing:Describe*",
+            Resource: "*",
           },
         ],
       }),
@@ -324,7 +217,7 @@ export class GithubOidcStack extends TerraformStack {
       policyArn: albPolicy.arn,
     });
 
-    // Policy for VPC and networking resources (scoped with conditions)
+    // Policy for VPC and networking (all actions, scoped to Project:express-app tag)
     const vpcPolicy = new IamPolicy(this, "vpc-policy", {
       name: "github-actions-vpc-policy",
       description:
@@ -334,26 +227,12 @@ export class GithubOidcStack extends TerraformStack {
         Statement: [
           {
             Effect: "Allow",
-            Action: [
-              // Read-only operations (require Resource: "*")
-              "ec2:DescribeVpcs",
-              "ec2:DescribeSubnets",
-              "ec2:DescribeInternetGateways",
-              "ec2:DescribeNatGateways",
-              "ec2:DescribeAddresses",
-              "ec2:DescribeRouteTables",
-              "ec2:DescribeSecurityGroups",
-              "ec2:DescribeSecurityGroupRules",
-              "ec2:DescribeNetworkInterfaces",
-              "ec2:DescribeAvailabilityZones",
-              "ec2:DescribeTags",
-            ],
+            Action: "ec2:Describe*",
             Resource: "*",
           },
           {
             Effect: "Allow",
             Action: [
-              // Create operations with tagging requirement
               "ec2:CreateVpc",
               "ec2:CreateSubnet",
               "ec2:CreateInternetGateway",
@@ -375,32 +254,16 @@ export class GithubOidcStack extends TerraformStack {
           {
             Effect: "Allow",
             Action: [
-              // Modify/Delete operations on tagged resources
-              "ec2:DeleteVpc",
-              "ec2:ModifyVpcAttribute",
-              "ec2:DeleteSubnet",
-              "ec2:ModifySubnetAttribute",
-              "ec2:DeleteInternetGateway",
-              "ec2:AttachInternetGateway",
-              "ec2:DetachInternetGateway",
-              "ec2:DeleteNatGateway",
-              "ec2:ReleaseAddress",
-              "ec2:AssociateAddress",
-              "ec2:DisassociateAddress",
-              "ec2:DeleteRouteTable",
-              "ec2:AssociateRouteTable",
-              "ec2:DisassociateRouteTable",
-              "ec2:DeleteRoute",
-              "ec2:ReplaceRoute",
-              "ec2:DeleteSecurityGroup",
-              "ec2:AuthorizeSecurityGroupIngress",
-              "ec2:RevokeSecurityGroupIngress",
-              "ec2:AuthorizeSecurityGroupEgress",
-              "ec2:RevokeSecurityGroupEgress",
-              "ec2:ModifySecurityGroupRules",
-              "ec2:DeleteNetworkInterface",
-              "ec2:ModifyNetworkInterfaceAttribute",
-              "ec2:DeleteTags",
+              "ec2:Delete*",
+              "ec2:Modify*",
+              "ec2:Attach*",
+              "ec2:Detach*",
+              "ec2:Associate*",
+              "ec2:Disassociate*",
+              "ec2:Release*",
+              "ec2:Authorize*",
+              "ec2:Revoke*",
+              "ec2:Replace*",
             ],
             Resource: "*",
             Condition: {
