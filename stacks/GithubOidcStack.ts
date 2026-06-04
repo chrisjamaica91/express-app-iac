@@ -143,6 +143,8 @@ export class GithubOidcStack extends TerraformStack {
               "ecs:DescribeContainerInstances",
               "ecs:ListContainerInstances",
               "ecs:DescribeCapacityProviders",
+              // Task Definition deregister (AWS requires Resource: "*")
+              "ecs:DeregisterTaskDefinition",
             ],
             Resource: "*",
           },
@@ -177,7 +179,6 @@ export class GithubOidcStack extends TerraformStack {
             Action: [
               // Task Definition operations
               "ecs:RegisterTaskDefinition",
-              "ecs:DeregisterTaskDefinition",
               "ecs:TagResource",
             ],
             Resource: `arn:aws:ecs:${config.awsRegion}:${config.awsAccountId}:task-definition/express-app-*:*`,
@@ -279,6 +280,8 @@ export class GithubOidcStack extends TerraformStack {
               "elasticloadbalancing:SetIpAddressType",
               "elasticloadbalancing:AddTags",
               "elasticloadbalancing:RemoveTags",
+              // CreateListener needs permissions on the load balancer, not the listener
+              "elasticloadbalancing:CreateListener",
             ],
             Resource: `arn:aws:elasticloadbalancing:${config.awsRegion}:${config.awsAccountId}:loadbalancer/app/express-app-*/*`,
           },
@@ -299,7 +302,6 @@ export class GithubOidcStack extends TerraformStack {
           {
             Effect: "Allow",
             Action: [
-              "elasticloadbalancing:CreateListener",
               "elasticloadbalancing:DeleteListener",
               "elasticloadbalancing:ModifyListener",
               "elasticloadbalancing:CreateRule",
