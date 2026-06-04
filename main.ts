@@ -35,7 +35,7 @@ const githubOidcStack = new GithubOidcStack(app, "github-oidc", {
   tags: config.tags,
 });
 
-const iamStack = new IamStack(app, "express-app-iam", {
+const iamStack = new IamStack(app, `express-app-iam-${config.environment}`, {
   environment: config.environment,
   appName: "express-app",
   awsAccountId: config.awsAccountId,
@@ -61,6 +61,8 @@ class ExpressAppStack extends TerraformStack {
       encrypt: true,
     });
 
+    const envPrefix = `${config.app.name}-${config.environment}`;
+
     // Create VPC
     const vpc = new VpcConstruct(this, "vpc", {
       cidr: config.vpc.cidr,
@@ -68,7 +70,7 @@ class ExpressAppStack extends TerraformStack {
       tags: config.tags,
     });
 
-    // Create ECR repository
+    // Create ECR repository (shared across environments)
     const ecr = new EcrConstruct(this, "ecr", {
       repositoryName: config.ecr.repositoryName,
       imageTagMutability: config.ecr.imageTagMutability,
@@ -77,7 +79,7 @@ class ExpressAppStack extends TerraformStack {
 
     // Create ALB
     const alb = new AlbConstruct(this, "alb", {
-      name: `${config.tags.Project}-alb`,
+      name: `${envPrefix}-alb`,
       vpcId: vpc.outputs.vpcId,
       publicSubnetIds: vpc.outputs.publicSubnetIds,
       securityGroupIds: [vpc.outputs.albSecurityGroupId],
@@ -88,13 +90,13 @@ class ExpressAppStack extends TerraformStack {
 
     // Create ECS cluster and service
     const ecs = new EcsConstruct(this, "ecs", {
-      clusterName: `${config.tags.Project}-cluster`,
-      serviceName: `${config.tags.Project}-service`,
-      taskFamily: `${config.tags.Project}-task`,
+      clusterName: `${envPrefix}-cluster`,
+      serviceName: `${envPrefix}-service`,
+      taskFamily: `${envPrefix}-task`,
       cpu: config.ecs.cpu,
       memory: config.ecs.memory,
       desiredCount: config.ecs.desiredCount,
-      containerImage: `${ecr.outputs.repositoryUrl}:latest`,
+      containerImage: `${ecr.outputs.repositoryUrl}:${config.environment}`,
       containerPort: 3000,
       taskRoleArn: iamStack.taskRoleArn,
       executionRoleArn: iamStack.taskExecutionRoleArn,
@@ -153,6 +155,5 @@ class ExpressAppStack extends TerraformStack {
   }
 }
 
-new ExpressAppStack(app, "express-app-iac");
+new ExpressAppStack(app, express-app-iac-);
 app.synth();
-// Updated Wed Jun  3 19:24:40 EDT 2026

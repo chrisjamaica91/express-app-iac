@@ -49,6 +49,7 @@ jobs:
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
+          GITHUB_ORG: ${{ github.repository_owner }}
           ENVIRONMENT: dev
 
       - name: Upload synth artifacts
@@ -118,13 +119,15 @@ jobs:
       - name: CDKTF Plan
         run: |
           npm run synth
-          cd cdktf.out/stacks/express-app-iac
+          cd cdktf.out/stacks/express-app-iac-dev
           terraform init
           terraform plan -no-color -out=tfplan
           terraform show -no-color tfplan > ../../../terraform-plan.txt
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
+          GITHUB_ORG: ${{ github.repository_owner }}
+          ENVIRONMENT: dev
 
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
@@ -139,8 +142,8 @@ jobs:
     needs: validate
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
-      name: production
-      url: https://console.aws.amazon.com/ecs/v2/clusters/express-app-cluster
+      name: dev
+      url: https://console.aws.amazon.com/ecs/v2/clusters/express-app-dev-cluster
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -167,10 +170,11 @@ jobs:
           terraform_version: "1.9.0"
 
       - name: CDKTF Deploy
-        run: npx cdktf deploy github-oidc express-app-iam express-app-iac --auto-approve
+        run: npx cdktf deploy express-app-iam-dev express-app-iac-dev --auto-approve
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
+          ENVIRONMENT: dev
 
       - name: Post deployment summary
         run: |
@@ -198,15 +202,15 @@ jobs:
         run: |
           # Get ECS service status
           SERVICE_STATUS=$(aws ecs describe-services \
-            --cluster express-app-cluster \
-            --services express-app-service \
+            --cluster express-app-dev-cluster \
+            --services express-app-dev-service \
             --region ${{ env.AWS_REGION }} \
             --query 'services[0].{Running:runningCount,Desired:desiredCount,Status:status}' \
             --output json)
 
           # Get recent CloudWatch logs (last 5 minutes)
           LOG_EVENTS=$(aws logs filter-log-events \
-            --log-group-name /ecs/express-app-service \
+            --log-group-name /ecs/express-app-dev-service \
             --start-time $(($(date +%s) - 300))000 \
             --limit 20 \
             --region ${{ env.AWS_REGION }} \
@@ -215,7 +219,7 @@ jobs:
 
           # Get ALB target health
           TG_ARN=$(aws elbv2 describe-target-groups \
-            --names express-app-alb-tg \
+            --names express-app-dev-alb-tg \
             --region ${{ env.AWS_REGION }} \
             --query 'TargetGroups[0].TargetGroupArn' \
             --output text)
