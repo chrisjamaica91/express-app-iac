@@ -70,12 +70,33 @@ class ExpressAppStack extends TerraformStack {
       tags: config.tags,
     });
 
-    // Create ECR repository (shared across environments)
-    const ecr = new EcrConstruct(this, "ecr", {
-      repositoryName: config.ecr.repositoryName,
-      imageTagMutability: config.ecr.imageTagMutability,
-      tags: config.tags,
-    });
+    // ECR repository - only create in dev, reference existing in staging/prod
+    let ecrRepositoryUrl: string;
+    let ecrRepositoryArn: string;
+    let ecrRepositoryName: string;
+
+    if (config.environment === "dev") {
+      // Create ECR repository only in dev environment
+      const ecr = new EcrConstruct(this, "ecr", {
+        repositoryName: config.ecr.repositoryName,
+        imageTagMutability: config.ecr.imageTagMutability,
+        tags: config.tags,
+      });
+      ecrRepositoryUrl = ecr.outputs.repositoryUrl;
+      ecrRepositoryArn = ecr.outputs.repositoryArn;
+      ecrRepositoryName = ecr.outputs.repositoryName;
+    } else {
+      // For staging/prod, reference the existing ECR repository created in dev
+      const {
+        DataAwsEcrRepository,
+      } = require("@cdktf/provider-aws/lib/data-aws-ecr-repository");
+      const existingEcr = new DataAwsEcrRepository(this, "ecr-data", {
+        name: config.ecr.repositoryName,
+      });
+      ecrRepositoryUrl = existingEcr.repositoryUrl;
+      ecrRepositoryArn = existingEcr.arn;
+      ecrRepositoryName = existingEcr.name;
+    }
 
     // Create ALB
     const alb = new AlbConstruct(this, "alb", {
@@ -96,7 +117,7 @@ class ExpressAppStack extends TerraformStack {
       cpu: config.ecs.cpu,
       memory: config.ecs.memory,
       desiredCount: config.ecs.desiredCount,
-      containerImage: `${ecr.outputs.repositoryUrl}:${config.environment}`,
+      containerImage: `${ecrRepositoryUrl}:${config.environment}`,
       containerPort: 3000,
       taskRoleArn: iamStack.taskRoleArn,
       executionRoleArn: iamStack.taskExecutionRoleArn,
@@ -120,7 +141,7 @@ class ExpressAppStack extends TerraformStack {
     });
 
     new TerraformOutput(this, "ecr-repository-url", {
-      value: ecr.outputs.repositoryUrl,
+      value: ecrRepositoryUrl,
     });
 
     new TerraformOutput(this, "alb-dns-name", {
