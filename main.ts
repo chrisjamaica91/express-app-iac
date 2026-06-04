@@ -87,9 +87,13 @@ class ExpressAppStack extends TerraformStack {
       ecrRepositoryName = ecr.outputs.repositoryName;
     } else {
       // For staging/prod, reference the existing ECR repository created in dev
+<<<<<<< Updated upstream
       const {
         DataAwsEcrRepository,
       } = require("@cdktf/provider-aws/lib/data-aws-ecr-repository");
+=======
+      const { DataAwsEcrRepository } = require("@cdktf/provider-aws/lib/data-aws-ecr-repository");
+>>>>>>> Stashed changes
       const existingEcr = new DataAwsEcrRepository(this, "ecr-data", {
         name: config.ecr.repositoryName,
       });
