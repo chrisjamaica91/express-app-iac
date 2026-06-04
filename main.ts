@@ -35,7 +35,7 @@ const githubOidcStack = new GithubOidcStack(app, "github-oidc", {
   tags: config.tags,
 });
 
-const iamStack = new IamStack(app, "express-app-iam", {
+const iamStack = new IamStack(app, `express-app-iam-${config.environment}`, {
   environment: config.environment,
   appName: "express-app",
   awsAccountId: config.awsAccountId,
@@ -61,6 +61,8 @@ class ExpressAppStack extends TerraformStack {
       encrypt: true,
     });
 
+    const envPrefix = `${config.app.name}-${config.environment}`;
+
     // Create VPC
     const vpc = new VpcConstruct(this, "vpc", {
       cidr: config.vpc.cidr,
@@ -68,16 +70,37 @@ class ExpressAppStack extends TerraformStack {
       tags: config.tags,
     });
 
-    // Create ECR repository
-    const ecr = new EcrConstruct(this, "ecr", {
-      repositoryName: config.ecr.repositoryName,
-      imageTagMutability: config.ecr.imageTagMutability,
-      tags: config.tags,
-    });
+    // ECR repository - only create in dev, reference existing in staging/prod
+    let ecrRepositoryUrl: string;
+    let ecrRepositoryArn: string;
+    let ecrRepositoryName: string;
+
+    if (config.environment === "dev") {
+      // Create ECR repository only in dev environment
+      const ecr = new EcrConstruct(this, "ecr", {
+        repositoryName: config.ecr.repositoryName,
+        imageTagMutability: config.ecr.imageTagMutability,
+        tags: config.tags,
+      });
+      ecrRepositoryUrl = ecr.outputs.repositoryUrl;
+      ecrRepositoryArn = ecr.outputs.repositoryArn;
+      ecrRepositoryName = ecr.outputs.repositoryName;
+    } else {
+      // For staging/prod, reference the existing ECR repository created in dev
+      const {
+        DataAwsEcrRepository,
+      } = require("@cdktf/provider-aws/lib/data-aws-ecr-repository");
+      const existingEcr = new DataAwsEcrRepository(this, "ecr-data", {
+        name: config.ecr.repositoryName,
+      });
+      ecrRepositoryUrl = existingEcr.repositoryUrl;
+      ecrRepositoryArn = existingEcr.arn;
+      ecrRepositoryName = existingEcr.name;
+    }
 
     // Create ALB
     const alb = new AlbConstruct(this, "alb", {
-      name: `${config.tags.Project}-alb`,
+      name: `${envPrefix}-alb`,
       vpcId: vpc.outputs.vpcId,
       publicSubnetIds: vpc.outputs.publicSubnetIds,
       securityGroupIds: [vpc.outputs.albSecurityGroupId],
@@ -88,13 +111,13 @@ class ExpressAppStack extends TerraformStack {
 
     // Create ECS cluster and service
     const ecs = new EcsConstruct(this, "ecs", {
-      clusterName: `${config.tags.Project}-cluster`,
-      serviceName: `${config.tags.Project}-service`,
-      taskFamily: `${config.tags.Project}-task`,
+      clusterName: `${envPrefix}-cluster`,
+      serviceName: `${envPrefix}-service`,
+      taskFamily: `${envPrefix}-task`,
       cpu: config.ecs.cpu,
       memory: config.ecs.memory,
       desiredCount: config.ecs.desiredCount,
-      containerImage: `${ecr.outputs.repositoryUrl}:latest`,
+      containerImage: `${ecrRepositoryUrl}:${config.environment}`,
       containerPort: 3000,
       taskRoleArn: iamStack.taskRoleArn,
       executionRoleArn: iamStack.taskExecutionRoleArn,
@@ -118,7 +141,7 @@ class ExpressAppStack extends TerraformStack {
     });
 
     new TerraformOutput(this, "ecr-repository-url", {
-      value: ecr.outputs.repositoryUrl,
+      value: ecrRepositoryUrl,
     });
 
     new TerraformOutput(this, "alb-dns-name", {
@@ -153,6 +176,5 @@ class ExpressAppStack extends TerraformStack {
   }
 }
 
-new ExpressAppStack(app, "express-app-iac");
+new ExpressAppStack(app, `express-app-iac-${config.environment}`);
 app.synth();
-// Updated Wed Jun  3 19:24:40 EDT 2026
