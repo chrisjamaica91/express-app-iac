@@ -166,6 +166,32 @@ jobs:
         with:
           terraform_version: "1.9.0"
 
+      - name: Check and Deploy IAM Stack if Needed
+        run: |
+          ENV="${{ steps.env.outputs.environment }}"
+          IAM_STATE_KEY="${ENV}/express-app-iam-${ENV}/terraform.tfstate"
+          BUCKET="express-app-tfstate-${{ secrets.AWS_ACCOUNT_ID }}"
+
+          echo "Checking if IAM stack exists for environment: $ENV"
+
+          # Check if IAM stack state file exists in S3
+          if aws s3 ls "s3://${BUCKET}/${IAM_STATE_KEY}" 2>/dev/null; then
+            echo "✓ IAM stack already exists for $ENV environment"
+          else
+            echo "⚠ IAM stack does not exist for $ENV environment"
+            echo "Deploying IAM stack first..."
+            
+            # Synth and deploy IAM stack only
+            npm run synth
+            npx cdktf deploy express-app-iam-${ENV} --auto-approve
+            
+            echo "✓ IAM stack deployed successfully"
+          fi
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+
       - name: CDKTF Plan
         run: |
           npm run synth
