@@ -131,6 +131,7 @@ export class GithubOidcStack extends TerraformStack {
             Effect: "Allow",
             Action: [
               "ecs:UpdateService",
+              "ecs:DeleteService",
               "ecs:DescribeServices",
               "ecs:DescribeTaskDefinition",
               "ecs:RegisterTaskDefinition",
@@ -198,6 +199,7 @@ export class GithubOidcStack extends TerraformStack {
               "elasticloadbalancing:DescribeTargetGroups",
               "elasticloadbalancing:DescribeTargetHealth",
               "elasticloadbalancing:DescribeListeners",
+              "elasticloadbalancing:DeleteListener",
             ],
             Resource: "*",
           },
