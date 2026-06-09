@@ -1,3 +1,0 @@
-
-    // Policy for IAM infrastructure management (OIDC, roles, policies)
-    const iamManagementPolicy = new IamPolicy(this, " iam-management-policy,
